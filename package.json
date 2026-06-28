@@ -1,0 +1,12 @@
+{
+  "name": "glaze-matrix",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interactive pairwise glaze-layering recommendation matrix, live from Notion.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "selftest": "node test/selftest.mjs"
+  }
+}
