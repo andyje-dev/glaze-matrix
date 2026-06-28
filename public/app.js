@@ -157,7 +157,9 @@
     return has(finishedKeys, baseCode + '|' + (topCode || '') + '|' + clayName);
   }
 
-  // Precompute every cell. cell = { single, b, t, bands:[{rating,finished}], run, deco }
+  // Precompute every cell. bands is indexed parallel to clays; the run/deco
+  // tags are computed here as raw pair properties and suppressed at render time
+  // based on which clays are currently selected.
   var matrix = [];
   for (var i = 0; i < glazes.length; i++) {
     var row = [];
@@ -171,15 +173,23 @@
           : isFinished(b.code, t.code, clay.name);
         return { rating: rating, finished: fin };
       });
-      var allSkip = bands.every(function (x) { return x.rating === SKIP; });
       row.push({
         single: single, b: b, t: t, bands: bands,
-        run: allSkip ? false : runRisk(b, t),
-        deco: allSkip ? false : deco(b, t, single),
-        allSkip: allSkip
+        runRaw: runRisk(b, t),
+        decoRaw: deco(b, t, single)
       });
     }
     matrix.push(row);
+  }
+
+  // Clay selection: every clay shown by default. A cell renders one band per
+  // selected clay, so two selected splits each cell in two and one selected
+  // gives a single undivided band.
+  var claySelected = clays.map(function () { return true; });
+  function selectedIndices() {
+    var out = [];
+    for (var s = 0; s < claySelected.length; s++) if (claySelected[s]) out.push(s);
+    return out;
   }
 
   // --- Text -----------------------------------------------------------------
@@ -282,7 +292,7 @@
   // Header
   var header = el('header', 'gm-header');
   header.appendChild(el('h1', null, 'Glaze Layering Matrix'));
-  header.appendChild(el('p', 'gm-sub', 'Rows are the base glaze, columns the top glaze. The diagonal is single glazes. Each cell shows one band per clay.'));
+  header.appendChild(el('p', 'gm-sub', 'Rows are the base glaze, columns the top glaze. The diagonal is single glazes. Each cell shows one band per selected clay.'));
   header.appendChild(el('p', 'gm-stamp', 'Live from Notion: ' + fmtTime(DATA.generatedAt)));
   app.appendChild(header);
 
@@ -311,6 +321,48 @@
     return w;
   }
 
+  // Friendly clay name: strip the "New Mexico Clay - " brand prefix.
+  function shortClayName(name) {
+    var dash = name.lastIndexOf(' - ');
+    return dash >= 0 ? name.slice(dash + 3) : name;
+  }
+
+  // Clay selector. Toggling a clay redraws the matrix bands; at least one clay
+  // must stay selected.
+  var clayPicker = el('div', 'gm-clays');
+  clayPicker.appendChild(el('span', 'gm-clays-label', 'Clays:'));
+  var clayBoxes = clays.map(function (clay, idx) {
+    var lab = el('label', 'gm-claychk');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.addEventListener('change', function () { onClayToggle(idx, cb); });
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(' ' + shortClayName(clay.name)));
+    clayPicker.appendChild(lab);
+    return cb;
+  });
+  app.appendChild(clayPicker);
+
+  function onClayToggle(idx, cb) {
+    if (!cb.checked && selectedIndices().length === 1) {
+      cb.checked = true; // keep at least one clay visible
+      return;
+    }
+    claySelected[idx] = cb.checked;
+    rerender();
+  }
+
+  function rerender() {
+    for (var i = 0; i < cellEls.length; i++) {
+      for (var j = 0; j < cellEls[i].length; j++) {
+        renderCellInner(cellEls[i][j], matrix[i][j]);
+      }
+    }
+    updateProgress();
+    if (currentDetail) showDetail(currentDetail.ri, currentDetail.ci);
+  }
+
   // Progress bar with toggle
   var includeWorth = false;
   var progWrap = el('div', 'gm-progress');
@@ -331,14 +383,16 @@
 
   function updateProgress() {
     var target = 0, done = 0;
+    var idxs = selectedIndices();
     for (var i = 0; i < matrix.length; i++) {
       for (var j = 0; j < matrix[i].length; j++) {
         var bands = matrix[i][j].bands;
-        for (var k = 0; k < bands.length; k++) {
-          var counts = bands[k].rating === REC || (includeWorth && bands[k].rating === WORTH);
+        for (var n = 0; n < idxs.length; n++) {
+          var band = bands[idxs[n]];
+          var counts = band.rating === REC || (includeWorth && band.rating === WORTH);
           if (counts) {
             target++;
-            if (bands[k].finished) done++;
+            if (band.finished) done++;
           }
         }
       }
@@ -362,31 +416,42 @@
     h.title = g.code + ' ' + g.name;
     grid.appendChild(h);
   });
-  // rows
+  // rows. cellEls holds each cell div so a clay toggle can redraw bands in place.
+  var cellEls = [];
   for (var ri = 0; ri < glazes.length; ri++) {
     var rh = el('div', 'gm-rowhead', '<span>' + glazes[ri].code + '</span>');
     rh.title = glazes[ri].code + ' ' + glazes[ri].name;
     grid.appendChild(rh);
+    var rowEls = [];
     for (var ci = 0; ci < glazes.length; ci++) {
-      grid.appendChild(buildCell(ri, ci));
+      var cell = matrix[ri][ci];
+      var d = el('div', 'gm-cell' + (cell.single ? ' gm-single' : ''));
+      d.setAttribute('data-i', ri);
+      d.setAttribute('data-j', ci);
+      renderCellInner(d, cell);
+      grid.appendChild(d);
+      rowEls.push(d);
     }
+    cellEls.push(rowEls);
   }
   scroll.appendChild(grid);
   app.appendChild(scroll);
 
-  function buildCell(ri, ci) {
-    var cell = matrix[ri][ci];
-    var d = el('div', 'gm-cell' + (cell.single ? ' gm-single' : ''));
-    d.setAttribute('data-i', ri);
-    d.setAttribute('data-j', ci);
-    cell.bands.forEach(function (band) {
+  // Draw the bands for the currently selected clays, plus the run/decorative
+  // corner tags (suppressed when every selected band is Skip).
+  function renderCellInner(d, cell) {
+    d.innerHTML = '';
+    var idxs = selectedIndices();
+    var allSkip = true;
+    idxs.forEach(function (k) {
+      var band = cell.bands[k];
+      if (band.rating !== SKIP) allSkip = false;
       var bd = el('div', 'gm-band');
       bd.style.background = band.finished ? BLACK : COLORS[band.rating];
       d.appendChild(bd);
     });
-    if (cell.run) d.appendChild(el('span', 'gm-tag gm-run'));
-    if (cell.deco) d.appendChild(el('span', 'gm-tag gm-deco'));
-    return d;
+    if (!allSkip && cell.runRaw) d.appendChild(el('span', 'gm-tag gm-run'));
+    if (!allSkip && cell.decoRaw) d.appendChild(el('span', 'gm-tag gm-deco'));
   }
 
   // Glaze key grouped by product line (code prefix)
@@ -422,7 +487,10 @@
   detail.style.display = 'none';
   app.appendChild(detail);
 
+  var currentDetail = null;
+
   function showDetail(ri, ci) {
+    currentDetail = { ri: ri, ci: ci };
     var cell = matrix[ri][ci];
     var b = cell.b, t = cell.t;
     var rec = cell.single ? recSingle(b) : recCombo(b, t);
@@ -430,22 +498,26 @@
       ? (b.code + ' ' + b.name)
       : (b.code + ' ' + b.name + ' → ' + t.code + ' ' + t.name);
 
+    var idxs = selectedIndices();
+    var allSkip = idxs.every(function (k) { return cell.bands[k].rating === SKIP; });
+
     var html = '<button class="gm-close" aria-label="Close">×</button>';
     html += '<h3>' + escapeHtml(title) + '</h3>';
     var tags = [];
-    if (cell.run) tags.push('<span class="gm-pill gm-run-pill">Run risk</span>');
-    if (cell.deco) tags.push('<span class="gm-pill gm-deco-pill">Decorative only</span>');
+    if (!allSkip && cell.runRaw) tags.push('<span class="gm-pill gm-run-pill">Run risk</span>');
+    if (!allSkip && cell.decoRaw) tags.push('<span class="gm-pill gm-deco-pill">Decorative only</span>');
     if (tags.length) html += '<div class="gm-pills">' + tags.join(' ') + '</div>';
     html += '<p class="gm-rec">' + escapeHtml(rec.line) + '</p>';
     html += '<p class="gm-coats">' + escapeHtml(rec.coats) + '</p>';
     html += '<ul class="gm-claylist">';
-    cell.bands.forEach(function (band, idx) {
-      var clay = clays[idx];
+    idxs.forEach(function (k) {
+      var clay = clays[k];
+      var band = cell.bands[k];
       var note = clayNote(b, t, clay, band.rating, cell.single);
       var fin = band.finished ? ' (finished)' : '';
       html += '<li><span class="gm-claydot" style="background:' +
         (band.finished ? BLACK : COLORS[band.rating]) + '"></span>' +
-        '<b>' + escapeHtml(clay.name) + '</b>: ' + RATING_LABEL[band.rating] + fin +
+        '<b>' + escapeHtml(shortClayName(clay.name)) + '</b>: ' + RATING_LABEL[band.rating] + fin +
         '. ' + escapeHtml(note) + '</li>';
     });
     html += '</ul>';
@@ -453,6 +525,7 @@
     detail.style.display = 'block';
     detail.querySelector('.gm-close').addEventListener('click', function () {
       detail.style.display = 'none';
+      currentDetail = null;
     });
   }
 

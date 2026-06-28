@@ -189,4 +189,70 @@ assert.equal(T.bandSingle(tpSingle, { D: 3, S: false }), T.SKIP, 'TP single on n
 assert.equal(T.bandSingle(tcSingle, { D: 3, S: false }), T.WORTH, 'TC single on near-black demotes to Worth a test');
 ok('client scoring: single-glaze near-black demotion');
 
+// --- 4. Clay selector (full render with a richer DOM stub) -------------------
+function richStub() {
+  const created = [];
+  function makeEl(tag) {
+    const e = {
+      tagName: tag, style: {}, _children: [], _l: {}, className: '', textContent: '', title: '', checked: false, type: '',
+      appendChild(c) { this._children.push(c); return c; },
+      setAttribute() {}, getAttribute() { return '0'; },
+      addEventListener(t, fn) { (this._l[t] = this._l[t] || []).push(fn); },
+      querySelector() { return makeEl('div'); },
+      classList: { contains() { return false; }, add() {} }
+    };
+    let h = '';
+    Object.defineProperty(e, 'innerHTML', {
+      get() { return h; },
+      set(v) { h = v; if (v === '') this._children.length = 0; }
+    });
+    created.push(e);
+    return e;
+  }
+  const document = { getElementById: () => makeEl('div'), createElement: makeEl, createTextNode: () => makeEl('text') };
+  return { created, document };
+}
+function dispatch(el, type) { (el._l[type] || []).forEach((fn) => fn({ target: el })); }
+function bandCount(cell) { return cell._children.filter((c) => c.className === 'gm-band').length; }
+
+const stub = richStub();
+const fixtureData = {
+  glazes: [
+    { id: 'a', code: 'C-21', name: 'June', brand: 'X', mv: 1, brk: 'None', color: 'NEUTRAL', cls: 'PO', fs: 'OK', roles: ['base-friendly'] },
+    { id: 'b', code: 'CR-12', name: 'Sky', brand: 'X', mv: 2, brk: 'Subtle', color: 'COBALT', cls: 'OS', fs: 'OK', roles: [] }
+  ],
+  clays: [
+    { id: 'w', name: 'New Mexico Clay - WH8 Stoneware', D: 0, S: false },
+    { id: 'c', name: 'New Mexico Clay - Chocolate', D: 3, S: false }
+  ],
+  finished: [],
+  generatedAt: null
+};
+const sb2 = { window: { __GMDATA__: fixtureData }, document: stub.document, console };
+vm.createContext(sb2);
+vm.runInContext(readFileSync(join(root, 'public/app.js'), 'utf8'), sb2);
+
+const cells = stub.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-cell') === 0);
+const inputs = stub.created.filter((e) => e.type === 'checkbox');
+assert.equal(cells.length, 4, 'two glazes give a 2x2 matrix');
+assert.ok(inputs.length >= 3, 'two clay checkboxes plus the progress toggle');
+assert.equal(bandCount(cells[0]), 2, 'both clays selected: two bands per cell');
+
+// Deselect the second clay (Chocolate); the first two checkboxes are the clays.
+inputs[1].checked = false;
+dispatch(inputs[1], 'change');
+assert.equal(bandCount(cells[0]), 1, 'one clay deselected: one band per cell');
+
+// Deselecting the last remaining clay is refused (at least one stays).
+inputs[0].checked = false;
+dispatch(inputs[0], 'change');
+assert.equal(inputs[0].checked, true, 'last clay cannot be deselected');
+assert.equal(bandCount(cells[0]), 1, 'still one band after the refused toggle');
+
+// Reselect Chocolate: back to two bands.
+inputs[1].checked = true;
+dispatch(inputs[1], 'change');
+assert.equal(bandCount(cells[0]), 2, 'reselecting restores two bands');
+ok('clay selector: band division follows selection, last clay protected');
+
 console.log('\nAll ' + passed + ' checks passed.');

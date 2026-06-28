@@ -43,6 +43,15 @@ body {
 .gm-tagicon.gm-run { border-left: 9px solid transparent; border-top: 9px solid var(--run); }
 .gm-tagicon.gm-deco { border-right: 9px solid transparent; border-top: 9px solid var(--deco); }
 
+/* Clay selector */
+.gm-clays {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 14px;
+}
+.gm-clays-label { font-size: 13px; font-weight: 600; color: #4a443c; }
+.gm-claychk { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #4a443c; cursor: pointer; }
+
 /* Progress */
 .gm-progress { margin-bottom: 18px; }
 .gm-prog-label { font-size: 13px; color: #4a443c; margin-bottom: 6px; }
