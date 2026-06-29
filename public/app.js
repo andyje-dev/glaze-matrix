@@ -437,7 +437,7 @@
   progWrap.appendChild(progLabel);
   progWrap.appendChild(progBarOuter);
   progWrap.appendChild(toggleWrap);
-  app.appendChild(progWrap);
+  // Appended after the matrix (below the table, above the glaze key) further down.
 
   function updateProgress() {
     var target = 0, done = 0;
@@ -494,6 +494,9 @@
   }
   scroll.appendChild(grid);
   app.appendChild(scroll);
+
+  // Progress bar and its toggle sit below the matrix and above the glaze key.
+  app.appendChild(progWrap);
 
   // Draw the bands for the currently selected clays, plus the run/decorative
   // corner tags (suppressed when every selected band is Skip).
