@@ -263,8 +263,9 @@ function shapeFinished(pages, glazeById, clayById) {
 }
 
 // A thrown piece counts when it is at least fired (so it has been glazed),
-// names the combo it used, and has a photo of the result. The latest image in
-// the throw's Photos is the finished, glazed piece.
+// names the combo it used, and has a photo of the result. Notion lists the
+// Photos newest-first, so the first image is the latest upload — the finished,
+// glazed piece, not an earlier wet/greenware shot.
 const PIECE_PROP = process.env.THROWS_PHOTO_PROP || 'Photos';
 const PIECE_STATUSES = { Finished: true, Fired: true };
 
@@ -284,7 +285,7 @@ function shapePieces(pages, comboById, clayById) {
     const images = propImages(page, PIECE_PROP);
     if (!images.length) continue;
 
-    pieces.push({ base: combo.base, top: combo.top, clay: clay, photo: images[images.length - 1] });
+    pieces.push({ base: combo.base, top: combo.top, clay: clay, photo: images[0] });
   }
   return pieces;
 }

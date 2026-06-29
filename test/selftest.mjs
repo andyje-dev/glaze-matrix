@@ -177,7 +177,7 @@ const throwPages = [
       Status: sel('Finished'),
       'Glaze Combos': rel(['t2']),
       Clay: rel(['choid']),
-      Photos: files([ifile('https://f/early.jpg'), ifile('https://f/final.jpg?sig=9'), ifile('https://f/notes.pdf')])
+      Photos: files([ifile('https://f/final.jpg?sig=9'), ifile('https://f/early.jpg'), ifile('https://f/notes.pdf')])
     }
   },
   { id: 'th2', properties: { Status: sel('Wet'), 'Glaze Combos': rel(['t2']), Clay: rel(['choid']), Photos: files([ifile('https://f/x.jpg')]) } },
@@ -187,7 +187,7 @@ const throwPages = [
 ];
 const pieces = shapePieces(throwPages, comboById, clayById);
 assert.equal(pieces.length, 1, 'only a Finished/Fired throw with a known combo, a clay, and an image counts');
-assert.deepEqual(pieces[0], { base: 'PC-10', top: 'PC-12', clay: 'New Mexico Clay - Chocolate', photo: 'https://f/final.jpg?sig=9' }, 'latest image wins, pdf ignored');
+assert.deepEqual(pieces[0], { base: 'PC-10', top: 'PC-12', clay: 'New Mexico Clay - Chocolate', photo: 'https://f/final.jpg?sig=9' }, 'newest-first: first image wins, pdf ignored');
 ok('shapePieces: status/combo/clay/photo gating, latest-image pick');
 
 // --- 3. Client scoring -------------------------------------------------------
