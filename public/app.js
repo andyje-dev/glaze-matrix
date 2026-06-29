@@ -526,17 +526,47 @@
     detail.querySelector('.gm-close').addEventListener('click', function () {
       detail.style.display = 'none';
       currentDetail = null;
+      unpin();
     });
   }
 
-  // Interaction: hover and tap
+  // Interaction. With no cell pinned, hover updates the panel (live preview).
+  // Clicking a cell pins it: the panel and the cell's selection stay put even
+  // when the pointer leaves, and hover no longer changes them. Clicking the
+  // pinned cell again (or the panel's close button) unpins and restores hover.
+  var pinned = null;
+
+  function setPinned(ri, ci, on) {
+    var d = cellEls[ri] && cellEls[ri][ci];
+    if (d && d.classList) {
+      if (on) d.classList.add('gm-pinned'); else d.classList.remove('gm-pinned');
+    }
+  }
+  function unpin() {
+    if (pinned) { setPinned(pinned.ri, pinned.ci, false); pinned = null; }
+  }
+  function pinCell(ri, ci) {
+    if (pinned) setPinned(pinned.ri, pinned.ci, false);
+    pinned = { ri: ri, ci: ci };
+    setPinned(ri, ci, true);
+    showDetail(ri, ci);
+  }
+
   grid.addEventListener('mouseover', function (e) {
+    if (pinned) return; // a pinned cell holds the panel
     var cell = closestCell(e.target);
     if (cell) showDetail(+cell.getAttribute('data-i'), +cell.getAttribute('data-j'));
   });
   grid.addEventListener('click', function (e) {
     var cell = closestCell(e.target);
-    if (cell) showDetail(+cell.getAttribute('data-i'), +cell.getAttribute('data-j'));
+    if (!cell) return;
+    var ri = +cell.getAttribute('data-i'), ci = +cell.getAttribute('data-j');
+    if (pinned && pinned.ri === ri && pinned.ci === ci) {
+      unpin();
+      showDetail(ri, ci); // keep showing it, now back in hover mode
+    } else {
+      pinCell(ri, ci);
+    }
   });
   function closestCell(node) {
     while (node && node !== grid) {

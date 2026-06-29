@@ -194,12 +194,18 @@ function richStub() {
   const created = [];
   function makeEl(tag) {
     const e = {
-      tagName: tag, style: {}, _children: [], _l: {}, className: '', textContent: '', title: '', checked: false, type: '',
-      appendChild(c) { this._children.push(c); return c; },
-      setAttribute() {}, getAttribute() { return '0'; },
+      tagName: tag, style: {}, _children: [], _l: {}, _a: {}, parentNode: null,
+      className: '', textContent: '', title: '', checked: false, type: '',
+      appendChild(c) { c.parentNode = this; this._children.push(c); return c; },
+      setAttribute(k, v) { this._a[k] = v; },
+      getAttribute(k) { return k in this._a ? this._a[k] : null; },
       addEventListener(t, fn) { (this._l[t] = this._l[t] || []).push(fn); },
-      querySelector() { return makeEl('div'); },
-      classList: { contains() { return false; }, add() {} }
+      querySelector() { return makeEl('div'); }
+    };
+    e.classList = {
+      contains(c) { return (' ' + e.className + ' ').indexOf(' ' + c + ' ') >= 0; },
+      add(c) { if (!this.contains(c)) e.className = e.className ? e.className + ' ' + c : c; },
+      remove(c) { e.className = (' ' + e.className + ' ').split(' ' + c + ' ').join(' ').trim(); }
     };
     let h = '';
     Object.defineProperty(e, 'innerHTML', {
@@ -212,7 +218,7 @@ function richStub() {
   const document = { getElementById: () => makeEl('div'), createElement: makeEl, createTextNode: () => makeEl('text') };
   return { created, document };
 }
-function dispatch(el, type) { (el._l[type] || []).forEach((fn) => fn({ target: el })); }
+function dispatch(el, type, evt) { (el._l[type] || []).forEach((fn) => fn(evt || { target: el })); }
 function bandCount(cell) { return cell._children.filter((c) => c.className === 'gm-band').length; }
 
 const stub = richStub();
@@ -254,5 +260,40 @@ inputs[1].checked = true;
 dispatch(inputs[1], 'change');
 assert.equal(bandCount(cells[0]), 2, 'reselecting restores two bands');
 ok('clay selector: band division follows selection, last clay protected');
+
+// --- 5. Click-to-pin ---------------------------------------------------------
+const stub2 = richStub();
+const sb3 = { window: { __GMDATA__: fixtureData }, document: stub2.document, console };
+vm.createContext(sb3);
+vm.runInContext(readFileSync(join(root, 'public/app.js'), 'utf8'), sb3);
+
+const grid = stub2.created.find((e) => e.className === 'gm-grid');
+const detail = stub2.created.find((e) => e.className === 'gm-detail');
+const pinCells = stub2.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-cell') === 0);
+const singleCell = pinCells[0]; // (0,0): single C-21, title has no arrow
+const comboCell = pinCells[1];  // (0,1): C-21 over CR-12, title has an arrow
+assert.equal(detail.style.display, 'none', 'panel hidden until first interaction');
+
+// Hover preview while nothing is pinned.
+dispatch(grid, 'mouseover', { target: comboCell });
+assert.equal(detail.style.display, 'block', 'hover shows the panel');
+assert.ok(detail.innerHTML.indexOf('→') >= 0, 'hover shows the hovered combo');
+
+// Click to pin the combo cell.
+dispatch(grid, 'click', { target: comboCell });
+assert.ok(comboCell.classList.contains('gm-pinned'), 'clicked cell is pinned');
+
+// Hovering elsewhere does not change the pinned panel.
+dispatch(grid, 'mouseover', { target: singleCell });
+assert.ok(detail.innerHTML.indexOf('→') >= 0, 'pinned panel ignores hover');
+
+// Click the pinned cell again to unpin.
+dispatch(grid, 'click', { target: comboCell });
+assert.ok(!comboCell.classList.contains('gm-pinned'), 'second click unpins');
+
+// Hover preview is restored after unpinning.
+dispatch(grid, 'mouseover', { target: singleCell });
+assert.ok(detail.innerHTML.indexOf('→') < 0, 'hover updates again after unpin');
+ok('click-to-pin: pin holds the panel, second click and hover restore behaviour');
 
 console.log('\nAll ' + passed + ' checks passed.');

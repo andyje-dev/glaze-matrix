@@ -77,6 +77,7 @@ body {
   display: flex; flex-direction: column; cursor: pointer; overflow: hidden;
 }
 .gm-cell:hover { outline: 2px solid #b9a98a; outline-offset: -2px; z-index: 1; }
+.gm-cell.gm-pinned { outline: 2.5px solid var(--text); outline-offset: -2.5px; z-index: 2; }
 .gm-band { flex: 1 1 0; }
 .gm-band + .gm-band { border-top: 1px solid rgba(255,255,255,0.45); }
 .gm-single { box-shadow: inset 0 0 0 1.5px var(--ring); }
