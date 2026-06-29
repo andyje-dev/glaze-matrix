@@ -58,6 +58,7 @@ body {
   border-bottom: 1px dotted #b9a98a;
 }
 .gm-clayname:hover { color: var(--text); border-bottom-color: var(--text); }
+.gm-clayname-on { font-weight: 700; color: var(--text); border-bottom-style: solid; border-bottom-color: var(--text); }
 
 /* Progress */
 .gm-progress { margin-bottom: 18px; }

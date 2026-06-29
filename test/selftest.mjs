@@ -449,4 +449,49 @@ dispatch(grid5, 'click', { target: cells6[1] });
 assert.ok(detail5.innerHTML.indexOf('Dark, makes glazes pop.') < 0, 'clicking a cell replaces the clay popup');
 ok('clay popup: name opens it, holds against hover, yields to a cell click');
 
+// --- 9. Hover/pin parity for clays and hover-off clearing --------------------
+const stub7 = richStub();
+const sb8 = { window: { __GMDATA__: clayNoteData }, document: stub7.document, console };
+vm.createContext(sb8);
+vm.runInContext(readFileSync(join(root, 'public/app.js'), 'utf8'), sb8);
+
+const grid7 = stub7.created.find((e) => e.className === 'gm-grid');
+const detail7 = stub7.created.find((e) => e.className === 'gm-detail');
+const clayPicker7 = stub7.created.find((e) => e.className === 'gm-clays');
+const clayNames7 = stub7.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-clayname') === 0);
+const cells7 = stub7.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-cell') === 0);
+
+// Hovering a clay name previews it without pinning (name not yet bold).
+dispatch(clayNames7[0], 'mouseover');
+assert.equal(detail7.style.display, 'block', 'hovering a clay name previews it');
+assert.ok(detail7.innerHTML.indexOf('Bright white and forgiving.') >= 0, 'preview shows the hovered clay note');
+assert.ok(!clayNames7[0].classList.contains('gm-clayname-on'), 'an unpinned (hovered) clay name is not marked');
+
+// Leaving the clay row clears the unpinned preview.
+dispatch(clayPicker7, 'mouseleave');
+assert.equal(detail7.style.display, 'none', 'leaving the clay row clears an unpinned clay preview');
+
+// Clicking selects (pins): the name is marked and the popup stays on leave.
+dispatch(clayNames7[0], 'click');
+assert.ok(clayNames7[0].classList.contains('gm-clayname-on'), 'a selected clay name is marked');
+dispatch(clayPicker7, 'mouseleave');
+assert.equal(detail7.style.display, 'block', 'a selected clay popup stays after leaving the row');
+
+// Clicking the selected clay again unselects it.
+dispatch(clayNames7[0], 'click');
+assert.ok(!clayNames7[0].classList.contains('gm-clayname-on'), 'clicking the selected clay again unselects it');
+dispatch(clayPicker7, 'mouseleave'); // back to a clean, empty panel
+
+// Matrix hover-off: an unpinned combo preview clears on leaving the grid.
+dispatch(grid7, 'mouseover', { target: cells7[1] });
+assert.equal(detail7.style.display, 'block', 'hovering a cell previews it');
+dispatch(grid7, 'mouseleave');
+assert.equal(detail7.style.display, 'none', 'leaving the matrix clears an unpinned combo preview');
+
+// A selected combo stays on the screen after leaving the matrix.
+dispatch(grid7, 'click', { target: cells7[1] });
+dispatch(grid7, 'mouseleave');
+assert.equal(detail7.style.display, 'block', 'a selected combo stays after leaving the matrix');
+ok('hover/pin parity: clay preview+marked pin, hover-off clears unpinned previews');
+
 console.log('\nAll ' + passed + ' checks passed.');

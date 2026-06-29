@@ -368,6 +368,7 @@
   // from the matrix and reading about it are independent actions.
   var clayPicker = el('div', 'gm-clays');
   clayPicker.appendChild(el('span', 'gm-clays-label', 'Clays:'));
+  var clayNameEls = [];
   var clayBoxes = clays.map(function (clay, idx) {
     var wrap = el('span', 'gm-claychk');
     var lab = el('label', 'gm-claytoggle');
@@ -380,9 +381,13 @@
     wrap.appendChild(lab);
     var nameBtn = el('button', 'gm-clayname', escapeHtml(shortClayName(clay.name)));
     nameBtn.type = 'button';
-    nameBtn.title = 'About this clay';
-    nameBtn.addEventListener('click', function () { showClayDetail(idx); });
+    nameBtn.title = 'Hover to preview, click to keep it open';
+    nameBtn.addEventListener('mouseover', function () { if (!pinned) showClayDetail(idx); });
+    nameBtn.addEventListener('click', function () {
+      togglePin({ kind: 'clay', idx: idx }, function () { showClayDetail(idx); });
+    });
     wrap.appendChild(nameBtn);
+    clayNameEls.push(nameBtn);
     clayPicker.appendChild(wrap);
     return cb;
   });
@@ -410,7 +415,10 @@
       }
     }
     updateProgress();
-    if (currentDetail) showDetail(currentDetail.ri, currentDetail.ci);
+    if (shown) {
+      if (shown.kind === 'cell') showDetail(shown.ri, shown.ci);
+      else showClayDetail(shown.idx);
+    }
   }
 
   // Progress bar with toggle
@@ -537,17 +545,22 @@
   detail.style.display = 'none';
   app.appendChild(detail);
 
-  var currentDetail = null;
-  // When set, a clay description holds the panel (like a pinned cell): hover
-  // over the matrix does not replace it until it is closed or a cell is clicked.
-  var clayShown = null;
+  // The panel shows either a combo cell or a clay. `shown` is what is currently
+  // displayed (pinned or hovered); `pinned` is the locked-on item, if any. Each
+  // is null or a descriptor: {kind:'cell', ri, ci} or {kind:'clay', idx}.
+  var shown = null;
+  var pinned = null;
+
+  function closePanel() {
+    unpin();
+    shown = null;
+    detail.style.display = 'none';
+  }
 
   // Clay description popup. Reuses the bottom-right panel so it reads like the
-  // cell detail the owner already likes.
+  // combo detail the owner already likes.
   function showClayDetail(idx) {
-    unpin();
-    currentDetail = null;
-    clayShown = idx;
+    shown = { kind: 'clay', idx: idx };
     var clay = clays[idx];
     var note = clay.notes && clay.notes.trim()
       ? clay.notes.trim()
@@ -558,15 +571,11 @@
     html += '<p class="gm-rec">' + escapeHtml(note) + '</p>';
     detail.innerHTML = html;
     detail.style.display = 'block';
-    detail.querySelector('.gm-close').addEventListener('click', function () {
-      detail.style.display = 'none';
-      clayShown = null;
-    });
+    detail.querySelector('.gm-close').addEventListener('click', closePanel);
   }
 
   function showDetail(ri, ci) {
-    clayShown = null;
-    currentDetail = { ri: ri, ci: ci };
+    shown = { kind: 'cell', ri: ri, ci: ci };
     var cell = matrix[ri][ci];
     var b = cell.b, t = cell.t;
     var rec = cell.single ? recSingle(b) : recCombo(b, t);
@@ -640,50 +649,56 @@
     html += '</ul>';
     detail.innerHTML = html;
     detail.style.display = 'block';
-    detail.querySelector('.gm-close').addEventListener('click', function () {
-      detail.style.display = 'none';
-      currentDetail = null;
-      unpin();
-    });
+    detail.querySelector('.gm-close').addEventListener('click', closePanel);
   }
 
-  // Interaction. With no cell pinned, hover updates the panel (live preview).
-  // Clicking a cell pins it: the panel and the cell's selection stay put even
-  // when the pointer leaves, and hover no longer changes them. Clicking the
-  // pinned cell again (or the panel's close button) unpins and restores hover.
-  var pinned = null;
-
-  function setPinned(ri, ci, on) {
-    var d = cellEls[ri] && cellEls[ri][ci];
-    if (d && d.classList) {
-      if (on) d.classList.add('gm-pinned'); else d.classList.remove('gm-pinned');
+  // Interaction. With nothing pinned, hovering a combo cell or a clay name
+  // previews it in the panel, and leaving the matrix (or the clay row) clears
+  // that unpinned preview. Clicking pins the target: the panel holds when the
+  // pointer leaves and hover stops changing it. Clicking the pinned target
+  // again (or the close button) unpins; the pinned cell or clay name is marked.
+  function applyPinVisual(p, on) {
+    if (!p) return;
+    if (p.kind === 'cell') {
+      var d = cellEls[p.ri] && cellEls[p.ri][p.ci];
+      if (d && d.classList) { if (on) d.classList.add('gm-pinned'); else d.classList.remove('gm-pinned'); }
+    } else {
+      var btn = clayNameEls[p.idx];
+      if (btn && btn.classList) { if (on) btn.classList.add('gm-clayname-on'); else btn.classList.remove('gm-clayname-on'); }
     }
   }
   function unpin() {
-    if (pinned) { setPinned(pinned.ri, pinned.ci, false); pinned = null; }
+    if (pinned) { applyPinVisual(pinned, false); pinned = null; }
   }
-  function pinCell(ri, ci) {
-    if (pinned) setPinned(pinned.ri, pinned.ci, false);
-    pinned = { ri: ri, ci: ci };
-    setPinned(ri, ci, true);
-    showDetail(ri, ci);
+  function pin(p) {
+    if (pinned) applyPinVisual(pinned, false);
+    pinned = p;
+    applyPinVisual(p, true);
+  }
+  function samePin(a, b) {
+    if (!a || !b || a.kind !== b.kind) return false;
+    return a.kind === 'cell' ? (a.ri === b.ri && a.ci === b.ci) : (a.idx === b.idx);
+  }
+  // Click a target: toggle its pin, then (re)render it. After unpinning it
+  // stays visible as a preview until the pointer leaves the matrix or clay row.
+  function togglePin(p, render) {
+    if (samePin(pinned, p)) unpin(); else pin(p);
+    render();
   }
 
   grid.addEventListener('mouseover', function (e) {
-    if (pinned || clayShown != null) return; // a pinned cell or clay popup holds the panel
+    if (pinned) return; // a pinned target holds the panel
     var cell = closestCell(e.target);
     if (cell) showDetail(+cell.getAttribute('data-i'), +cell.getAttribute('data-j'));
+  });
+  grid.addEventListener('mouseleave', function () {
+    if (!pinned) closePanel(); // drop an unpinned preview when leaving the matrix
   });
   grid.addEventListener('click', function (e) {
     var cell = closestCell(e.target);
     if (!cell) return;
     var ri = +cell.getAttribute('data-i'), ci = +cell.getAttribute('data-j');
-    if (pinned && pinned.ri === ri && pinned.ci === ci) {
-      unpin();
-      showDetail(ri, ci); // keep showing it, now back in hover mode
-    } else {
-      pinCell(ri, ci);
-    }
+    togglePin({ kind: 'cell', ri: ri, ci: ci }, function () { showDetail(ri, ci); });
   });
   function closestCell(node) {
     while (node && node !== grid) {
@@ -692,6 +707,11 @@
     }
     return null;
   }
+
+  // Leaving the clay row drops an unpinned clay preview the same way.
+  clayPicker.addEventListener('mouseleave', function () {
+    if (!pinned) closePanel();
+  });
 
   // Test hook (harmless in the browser; used by the offline self-test).
   window.__GM_TEST__ = {
