@@ -8,5 +8,9 @@
   },
   "scripts": {
     "selftest": "node test/selftest.mjs"
+  },
+  "dependencies": {
+    "heic-convert": "^2.1.0",
+    "sharp": "^0.33.5"
   }
 }

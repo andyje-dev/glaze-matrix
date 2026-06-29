@@ -19,14 +19,14 @@ let passed = 0;
 function ok(name) { passed++; console.log('  ok  ' + name); }
 
 // --- 1. Syntax ---------------------------------------------------------------
-for (const f of ['api/index.js', 'public/app.js']) {
+for (const f of ['api/index.js', 'api/img.js', 'public/app.js']) {
   execFileSync(process.execPath, ['--check', join(root, f)], { stdio: 'pipe' });
   ok('syntax: ' + f);
 }
 
 // --- 2. Server-side shaping --------------------------------------------------
 const api = require(join(root, 'api/index.js'));
-const { shapeGlazes, shapeClays, shapeFinished, shapeComboIndex, shapePieces, extractCode, pagePhotos } = api._internals;
+const { shapeGlazes, shapeClays, shapeFinished, shapeComboIndex, shapePieces, extractCode, pagePhotos, webImageUrl } = api._internals;
 
 function titleProp(text) { return { type: 'title', title: [{ plain_text: text }] }; }
 function sel(name) { return { type: 'select', select: name == null ? null : { name } }; }
@@ -151,6 +151,18 @@ assert.deepEqual(
   'pagePhotos: case-insensitive image filter across Files properties'
 );
 ok('pagePhotos: image filtering');
+
+// HEIC/HEIF urls are rewritten to the /api/img transcode route (the original is
+// url-encoded into u); other formats pass through untouched.
+assert.equal(
+  webImageUrl('https://s3.amazonaws.com/x/IMG_3107.heic?sig=abc'),
+  '/api/img?u=' + encodeURIComponent('https://s3.amazonaws.com/x/IMG_3107.heic?sig=abc'),
+  'heic is routed through /api/img'
+);
+assert.equal(webImageUrl('https://x/a.HEIF'), '/api/img?u=' + encodeURIComponent('https://x/a.HEIF'), 'heif is routed too, case-insensitively');
+assert.equal(webImageUrl('https://x/a.jpg?sig=1'), 'https://x/a.jpg?sig=1', 'jpg passes through unchanged');
+assert.equal(webImageUrl('https://x/a.png'), 'https://x/a.png', 'png passes through unchanged');
+ok('webImageUrl: heic/heif transcode rewrite, web-safe passthrough');
 
 // Throws → finished pieces. The combo index covers every combo row (any status),
 // so a throw can resolve to a cell even when no tile was ever finished.

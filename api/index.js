@@ -48,6 +48,18 @@ function isImageUrl(u) {
   return /\.(jpe?g|png|webp|gif|heic|heif|avif)$/.test(path);
 }
 
+// HEIC/HEIF (straight-from-iPhone uploads) can't render inline in any non-Safari
+// browser: the <img> breaks and only its download link shows. Route those through
+// /api/img, which fetches the original and transcodes to JPEG. Notion serves
+// presigned S3 urls, so this has to be our own function — third-party proxies
+// mangle the signature query params. Already-web-safe formats pass through.
+function webImageUrl(u) {
+  if (!u) return u;
+  var path = u.split('?')[0].toLowerCase();
+  if (/\.(heic|heif)$/.test(path)) return '/api/img?u=' + encodeURIComponent(u);
+  return u;
+}
+
 // Photo urls for a test-tile page. With TILES_PHOTO_PROP set, read only that
 // Files property (and trust every file in it); otherwise auto-detect across all
 // Files properties and keep image-looking urls.
@@ -59,7 +71,7 @@ function pagePhotos(page) {
     if (!p || p.type !== 'files' || !Array.isArray(p.files)) return;
     p.files.forEach(function (f) {
       var u = fileUrl(f);
-      if (u && (trustAll || isImageUrl(u))) urls.push(u);
+      if (u && (trustAll || isImageUrl(u))) urls.push(webImageUrl(u));
     });
   }
   if (PHOTO_PROP) {
@@ -77,7 +89,7 @@ function propImages(page, propName) {
   var urls = [];
   p.files.forEach(function (f) {
     var u = fileUrl(f);
-    if (u && isImageUrl(u)) urls.push(u);
+    if (u && isImageUrl(u)) urls.push(webImageUrl(u));
   });
   return urls;
 }
@@ -363,5 +375,6 @@ module.exports._internals = {
   shapeComboIndex: shapeComboIndex,
   shapePieces: shapePieces,
   extractCode: extractCode,
-  pagePhotos: pagePhotos
+  pagePhotos: pagePhotos,
+  webImageUrl: webImageUrl
 };
