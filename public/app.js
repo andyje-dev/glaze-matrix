@@ -362,22 +362,37 @@
     return dash >= 0 ? name.slice(dash + 3) : name;
   }
 
-  // Clay selector. Toggling a clay redraws the matrix bands; at least one clay
-  // must stay selected.
+  // Clay selector. The checkbox toggles whether a clay's band shows in the
+  // matrix (at least one must stay selected); the clay's name is a button that
+  // opens its description popup. Keeping the two separate means hiding a clay
+  // from the matrix and reading about it are independent actions.
   var clayPicker = el('div', 'gm-clays');
   clayPicker.appendChild(el('span', 'gm-clays-label', 'Clays:'));
   var clayBoxes = clays.map(function (clay, idx) {
-    var lab = el('label', 'gm-claychk');
+    var wrap = el('span', 'gm-claychk');
+    var lab = el('label', 'gm-claytoggle');
+    lab.title = 'Show or hide this clay in the matrix';
     var cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = true;
     cb.addEventListener('change', function () { onClayToggle(idx, cb); });
     lab.appendChild(cb);
-    lab.appendChild(document.createTextNode(' ' + shortClayName(clay.name)));
-    clayPicker.appendChild(lab);
+    wrap.appendChild(lab);
+    var nameBtn = el('button', 'gm-clayname', escapeHtml(shortClayName(clay.name)));
+    nameBtn.type = 'button';
+    nameBtn.title = 'About this clay';
+    nameBtn.addEventListener('click', function () { showClayDetail(idx); });
+    wrap.appendChild(nameBtn);
+    clayPicker.appendChild(wrap);
     return cb;
   });
   app.appendChild(clayPicker);
+
+  // Friendly one-line tone summary for the clay popup subtitle.
+  function toneLabel(clay) {
+    var tone = ['White body', 'Buff body', 'Brown body', 'Near-black body'][clay.D] || 'Body';
+    return clay.S ? tone + ', speckled' : tone;
+  }
 
   function onClayToggle(idx, cb) {
     if (!cb.checked && selectedIndices().length === 1) {
@@ -523,8 +538,34 @@
   app.appendChild(detail);
 
   var currentDetail = null;
+  // When set, a clay description holds the panel (like a pinned cell): hover
+  // over the matrix does not replace it until it is closed or a cell is clicked.
+  var clayShown = null;
+
+  // Clay description popup. Reuses the bottom-right panel so it reads like the
+  // cell detail the owner already likes.
+  function showClayDetail(idx) {
+    unpin();
+    currentDetail = null;
+    clayShown = idx;
+    var clay = clays[idx];
+    var note = clay.notes && clay.notes.trim()
+      ? clay.notes.trim()
+      : 'No description yet. Add one in the clay Notes in Notion.';
+    var html = '<button class="gm-close" aria-label="Close">×</button>';
+    html += '<h3>' + escapeHtml(shortClayName(clay.name)) + '</h3>';
+    html += '<p class="gm-coats">' + escapeHtml(toneLabel(clay)) + '</p>';
+    html += '<p class="gm-rec">' + escapeHtml(note) + '</p>';
+    detail.innerHTML = html;
+    detail.style.display = 'block';
+    detail.querySelector('.gm-close').addEventListener('click', function () {
+      detail.style.display = 'none';
+      clayShown = null;
+    });
+  }
 
   function showDetail(ri, ci) {
+    clayShown = null;
     currentDetail = { ri: ri, ci: ci };
     var cell = matrix[ri][ci];
     var b = cell.b, t = cell.t;
@@ -629,7 +670,7 @@
   }
 
   grid.addEventListener('mouseover', function (e) {
-    if (pinned) return; // a pinned cell holds the panel
+    if (pinned || clayShown != null) return; // a pinned cell or clay popup holds the panel
     var cell = closestCell(e.target);
     if (cell) showDetail(+cell.getAttribute('data-i'), +cell.getAttribute('data-j'));
   });

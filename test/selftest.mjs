@@ -30,10 +30,10 @@ const { shapeGlazes, shapeClays, shapeFinished, shapeComboIndex, shapePieces, ex
 
 function titleProp(text) { return { type: 'title', title: [{ plain_text: text }] }; }
 function sel(name) { return { type: 'select', select: name == null ? null : { name } }; }
+function rich(text) { return { type: 'rich_text', rich_text: text == null ? [] : [{ plain_text: text }] }; }
 function multi(names) { return { type: 'multi_select', multi_select: names.map((n) => ({ name: n })) }; }
 function check(v) { return { type: 'checkbox', checkbox: v }; }
 function rel(ids) { return { type: 'relation', relation: ids.map((id) => ({ id })) }; }
-function text(s) { return { type: 'rich_text', rich_text: [{ plain_text: s }] }; }
 function files(entries) { return { type: 'files', files: entries }; }
 function ifile(url) { return { type: 'file', file: { url } }; }
 function efile(url) { return { type: 'external', external: { url } }; }
@@ -87,7 +87,7 @@ assert.equal(extractCode('Amaco - PC-10 June Bug'), 'PC-10');
 ok('shapeGlazes: parse, exclude, id map');
 
 const clayPages = [
-  { id: 'wh8id', properties: { Name: titleProp('New Mexico Clay - WH8 Stoneware'), Tone: sel('White'), Speckled: check(false) } },
+  { id: 'wh8id', properties: { Name: titleProp('New Mexico Clay - WH8 Stoneware'), Tone: sel('White'), Speckled: check(false), Notes: rich('Bright white, easy to throw.') } },
   { id: 'ermid', properties: { Name: titleProp('New Mexico Clay - Ermine'), Tone: sel('White'), Speckled: check(true) } },
   { id: 'choid', properties: { Name: titleProp('New Mexico Clay - Chocolate'), Tone: sel('Near-black'), Speckled: check(false) } },
   { id: 'notone', properties: { Name: titleProp('New Mexico Clay - Mystery'), Tone: sel(null) } }
@@ -97,18 +97,18 @@ assert.equal(clays.length, 3, 'three classified clays, no-Tone excluded');
 assert.deepEqual(clays.map((c) => c.name), ['New Mexico Clay - WH8 Stoneware', 'New Mexico Clay - Ermine', 'New Mexico Clay - Chocolate'], 'ordered D asc, S asc, name');
 assert.equal(clays[0].D, 0);
 assert.equal(clays[2].D, 3);
-ok('shapeClays: parse, exclude, order');
+assert.equal(clays[0].notes, 'Bright white, easy to throw.', 'Notes text is parsed onto the clay');
+assert.equal(clays[1].notes, '', 'a clay with no Notes gets an empty string');
+ok('shapeClays: parse, exclude, order, notes');
 
 const tilePages = [
   {
-    id: 't1',
+    id: 't1', // Finished single: Base relation only, no Top.
     properties: {
       Status: sel('Finished'),
       'Base Glaze': rel(['pc10id']),
       'Top Glaze': rel([]),
       Clay: rel(['wh8id']),
-      Layers: text('Base (PC-10 June Bug): 3'),
-      Name: text('PC-10 June Bug'),
       Photo: files([
         ifile('https://files.example.com/tile-a.jpg?sig=1'),
         efile('https://example.com/tile-b.png'),
@@ -117,28 +117,30 @@ const tilePages = [
     }
   },
   {
-    id: 't2',
+    id: 't2', // Finished layered: Base + Top relations.
     properties: {
       Status: sel('Finished'),
-      'Base Glaze': rel([]),
-      'Top Glaze': rel([]),
-      Clay: rel(['wh8id']),
-      Layers: text('Base (PC-10 June Bug): 3\nTop (PC-12 Blue Midnight): 2'),
-      Name: text('PC-10 June Bug → PC-12 Blue Midnight')
+      'Base Glaze': rel(['pc10id']),
+      'Top Glaze': rel(['pc12id']),
+      Clay: rel(['wh8id'])
     }
   },
   {
-    id: 't3',
+    id: 't3', // To-Do: excluded from finished, but still indexed as a combo.
     properties: { Status: sel('To-Do'), 'Base Glaze': rel(['pc10id']), Clay: rel(['wh8id']) }
+  },
+  {
+    id: 't4', // Finished but no Base relation: dropped (relations are required).
+    properties: { Status: sel('Finished'), 'Base Glaze': rel([]), Clay: rel(['wh8id']) }
   }
 ];
 const finished = shapeFinished(tilePages, glazeById, clayById);
-assert.equal(finished.length, 2, 'only Finished rows');
+assert.equal(finished.length, 2, 'only Finished rows with a resolvable Base Glaze relation');
 const single = finished.find((f) => f.top === null);
-assert.ok(single && single.base === 'PC-10' && single.clay === 'New Mexico Clay - WH8 Stoneware', 'single resolved via relation + Name');
+assert.ok(single && single.base === 'PC-10' && single.clay === 'New Mexico Clay - WH8 Stoneware', 'single resolved via Base relation');
 const combo = finished.find((f) => f.top === 'PC-12');
-assert.ok(combo && combo.base === 'PC-10', 'combo resolved via Layers text');
-ok('shapeFinished: status filter, relation/Layers resolution, single vs combo');
+assert.ok(combo && combo.base === 'PC-10', 'combo resolved via Base/Top relations');
+ok('shapeFinished: status filter, relation-only resolution, missing-relation row dropped');
 
 // Photo auto-detection keeps image urls and drops non-images.
 assert.deepEqual(single.photos, ['https://files.example.com/tile-a.jpg?sig=1', 'https://example.com/tile-b.png'], 'image photos kept, pdf dropped');
@@ -410,5 +412,41 @@ const cells5 = stub5.created.filter((e) => typeof e.className === 'string' && e.
 const bothBand = cells5[1]._children.filter((c) => c.className === 'gm-band')[0];
 assert.equal(bothBand.style.background, '#17130d', 'a finished tile outranks a piece (stays black)');
 ok('precedence: finished tile beats finished piece');
+
+// --- 8. Clay description popup ------------------------------------------------
+const stub6 = richStub();
+const clayNoteData = {
+  glazes: fixtureData.glazes,
+  clays: [
+    { id: 'w', name: 'New Mexico Clay - WH8 Stoneware', D: 0, S: false, notes: 'Bright white and forgiving.' },
+    { id: 'c', name: 'New Mexico Clay - Chocolate', D: 3, S: false, notes: 'Dark, makes glazes pop.' }
+  ],
+  finished: [],
+  generatedAt: null
+};
+const sb7 = { window: { __GMDATA__: clayNoteData }, document: stub6.document, console };
+vm.createContext(sb7);
+vm.runInContext(readFileSync(join(root, 'public/app.js'), 'utf8'), sb7);
+
+const grid5 = stub6.created.find((e) => e.className === 'gm-grid');
+const detail5 = stub6.created.find((e) => e.className === 'gm-detail');
+const clayNames = stub6.created.filter((e) => e.className === 'gm-clayname');
+assert.equal(clayNames.length, 2, 'each clay has a clickable name button');
+
+// Clicking a clay name shows its description in the bottom-right panel.
+dispatch(clayNames[1], 'click');
+assert.equal(detail5.style.display, 'block', 'clay name opens the popup');
+assert.ok(detail5.innerHTML.indexOf('Dark, makes glazes pop.') >= 0, 'popup shows the clay note');
+assert.ok(detail5.innerHTML.indexOf('Near-black body') >= 0, 'popup shows the tone subtitle');
+
+// While the clay popup is open, hovering a cell does not replace it.
+const cells6 = stub6.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-cell') === 0);
+dispatch(grid5, 'mouseover', { target: cells6[1] });
+assert.ok(detail5.innerHTML.indexOf('Dark, makes glazes pop.') >= 0, 'clay popup holds against hover');
+
+// Clicking a cell takes over the panel (the clay popup yields).
+dispatch(grid5, 'click', { target: cells6[1] });
+assert.ok(detail5.innerHTML.indexOf('Dark, makes glazes pop.') < 0, 'clicking a cell replaces the clay popup');
+ok('clay popup: name opens it, holds against hover, yields to a cell click');
 
 console.log('\nAll ' + passed + ' checks passed.');

@@ -27,11 +27,11 @@ function titleText(page) {
   return '';
 }
 function prop(page, name) { return page.properties ? page.properties[name] : undefined; }
+function richText(p) { return p && p.rich_text ? plainFromRich(p.rich_text) : ''; }
 function selName(p) { return p && p.select ? p.select.name : null; }
 function multiNames(p) { return p && p.multi_select ? p.multi_select.map(function (s) { return s.name; }) : []; }
 function checkbox(p) { return !!(p && p.checkbox); }
 function relIds(p) { return p && p.relation ? p.relation.map(function (r) { return String(r.id).replace(/-/g, ''); }) : []; }
-function richText(p) { return p && p.rich_text ? plainFromRich(p.rich_text) : ''; }
 
 // A single files-property entry can be a Notion-hosted file (signed url that
 // expires about an hour after this fetch, which is fine for a fresh load) or an
@@ -185,7 +185,8 @@ function shapeClays(pages) {
       id: idKey,
       name: name,
       D: TONE[tone],
-      S: checkbox(prop(page, 'Speckled'))
+      S: checkbox(prop(page, 'Speckled')),
+      notes: richText(prop(page, 'Notes'))
     });
   }
   // Order by D ascending, then S ascending, then name.
@@ -197,51 +198,20 @@ function shapeClays(pages) {
   return { clays: clays, clayById: clayById };
 }
 
-function resolveTileGlaze(page, relName, glazeById, layersKey, namePart) {
-  // 1) relation, 2) Layers text, 3) Name.
-  const ids = relIds(prop(page, relName));
-  for (const id of ids) {
+// Resolve one glaze relation (Base Glaze / Top Glaze) to a glaze code.
+function relGlaze(page, relName, glazeById) {
+  for (const id of relIds(prop(page, relName))) {
     if (glazeById[id]) return glazeById[id];
-  }
-  const layers = richText(prop(page, 'Layers'));
-  if (layers) {
-    const re = new RegExp(layersKey + '\\s*\\(\\s*([A-Z]{1,3}-\\d{1,3})');
-    const m = layers.match(re);
-    if (m) return m[1];
-  }
-  if (namePart != null) {
-    const name = richTextOrTitle(page, 'Name');
-    if (name) {
-      const parts = name.split('→'); // arrow
-      const piece = parts[namePart];
-      if (piece !== undefined) return extractCode(piece);
-    }
   }
   return null;
 }
 
-function richTextOrTitle(page, name) {
-  const p = prop(page, name);
-  if (p && p.type === 'rich_text') return richText(p);
-  if (p && p.type === 'title') return plainFromRich(p.title);
-  return '';
-}
-
 // Resolve a Glaze Combos row to its {base, top} glaze codes (top null = single).
+// Base/Top relations are the single source of truth; every combo row carries them.
 function resolveComboGlazes(page, glazeById) {
-  const base = resolveTileGlaze(page, 'Base Glaze', glazeById, 'Base', 0);
+  const base = relGlaze(page, 'Base Glaze', glazeById);
   if (!base) return null;
-
-  // A single-glaze combo has no top. Try Top relation / Layers / second Name part.
-  let top = resolveTileGlaze(page, 'Top Glaze', glazeById, 'Top', 1);
-  // If the Name has no arrow, namePart 1 returns undefined and top stays null.
-  const name = richTextOrTitle(page, 'Name');
-  if (top && name && name.indexOf('→') < 0 && relIds(prop(page, 'Top Glaze')).length === 0) {
-    // Name is single and no Top relation: treat as single even if Layers had a stray match.
-    const layers = richText(prop(page, 'Layers'));
-    if (!/Top\s*\(/.test(layers)) top = null;
-  }
-  return { base: base, top: top || null };
+  return { base: base, top: relGlaze(page, 'Top Glaze', glazeById) || null };
 }
 
 // Map every Glaze Combos row (dashless page id) to its {base, top} codes, so a
