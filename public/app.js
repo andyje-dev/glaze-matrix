@@ -432,7 +432,7 @@
   var toggle = document.createElement('input');
   toggle.type = 'checkbox';
   toggleWrap.appendChild(toggle);
-  toggleWrap.appendChild(document.createTextNode(' Count Worth a test too'));
+  toggleWrap.appendChild(document.createTextNode(' Include worth-a-test combos'));
   toggle.addEventListener('change', function () { includeWorth = toggle.checked; updateProgress(); });
   progWrap.appendChild(progLabel);
   progWrap.appendChild(progBarOuter);
@@ -458,7 +458,7 @@
     var pct = target ? Math.round(done / target * 100) : 0;
     progBarInner.style.width = pct + '%';
     var what = includeWorth ? 'recommended and worth-a-test' : 'recommended';
-    progLabel.textContent = done + ' of ' + target + ' ' + what + ' bands made (' + pct + '%)';
+    progLabel.textContent = done + ' of ' + target + ' ' + what + ' combos made (' + pct + '%)';
   }
 
   // Matrix grid
