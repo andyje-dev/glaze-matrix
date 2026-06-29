@@ -112,6 +112,12 @@ body {
 .gm-deco-pill { background: var(--deco); }
 .gm-rec { margin: 0 0 6px; font-size: 14px; }
 .gm-coats { margin: 0 0 10px; font-size: 13px; color: #5b544b; }
+.gm-photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.gm-photos-h { width: 100%; font-size: 12px; font-weight: 600; color: #5b544b; text-transform: uppercase; letter-spacing: 0.03em; }
+.gm-photo { margin: 0; width: 96px; }
+.gm-photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); display: block; background: var(--surface); }
+.gm-photo figcaption { font-size: 11px; color: #8a8175; margin-top: 2px; text-align: center; }
+
 .gm-claylist { margin: 0; padding-left: 0; list-style: none; }
 .gm-claylist li { font-size: 13px; padding: 4px 0; border-top: 1px solid var(--line); }
 .gm-claydot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.12); }

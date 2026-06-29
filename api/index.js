@@ -28,6 +28,43 @@ function checkbox(p) { return !!(p && p.checkbox); }
 function relIds(p) { return p && p.relation ? p.relation.map(function (r) { return String(r.id).replace(/-/g, ''); }) : []; }
 function richText(p) { return p && p.rich_text ? plainFromRich(p.rich_text) : ''; }
 
+// A single files-property entry can be a Notion-hosted file (signed url that
+// expires about an hour after this fetch, which is fine for a fresh load) or an
+// external url.
+function fileUrl(f) {
+  if (!f) return null;
+  if (f.type === 'external' && f.external) return f.external.url;
+  if (f.type === 'file' && f.file) return f.file.url;
+  return null;
+}
+function isImageUrl(u) {
+  if (!u) return false;
+  var path = u.split('?')[0].toLowerCase();
+  return /\.(jpe?g|png|webp|gif|heic|heif|avif)$/.test(path);
+}
+
+// Photo urls for a test-tile page. With TILES_PHOTO_PROP set, read only that
+// Files property (and trust every file in it); otherwise auto-detect across all
+// Files properties and keep image-looking urls.
+var PHOTO_PROP = process.env.TILES_PHOTO_PROP || null;
+function pagePhotos(page) {
+  var urls = [];
+  var props = page.properties || {};
+  function collect(p, trustAll) {
+    if (!p || p.type !== 'files' || !Array.isArray(p.files)) return;
+    p.files.forEach(function (f) {
+      var u = fileUrl(f);
+      if (u && (trustAll || isImageUrl(u))) urls.push(u);
+    });
+  }
+  if (PHOTO_PROP) {
+    collect(props[PHOTO_PROP], true);
+  } else {
+    for (var k in props) collect(props[k], false);
+  }
+  return urls;
+}
+
 // --- Mapping tables ----------------------------------------------------------
 
 const MV = { Low: 1, Medium: 2, High: 3 };
@@ -196,7 +233,7 @@ function shapeFinished(pages, glazeById, clayById) {
     let clay = null;
     for (const id of clayIds) { if (clayById[id]) { clay = clayById[id]; break; } }
 
-    finished.push({ base: base, top: top || null, clay: clay });
+    finished.push({ base: base, top: top || null, clay: clay, photos: pagePhotos(page) });
   }
   return finished;
 }
@@ -280,5 +317,6 @@ module.exports._internals = {
   shapeGlazes: shapeGlazes,
   shapeClays: shapeClays,
   shapeFinished: shapeFinished,
-  extractCode: extractCode
+  extractCode: extractCode,
+  pagePhotos: pagePhotos
 };

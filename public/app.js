@@ -149,12 +149,21 @@
   var clays = DATA.clays.slice();
 
   // Blackout index: key "base|top|clay" for finished tiles (top empty = single).
+  // finishedPhotos collects the tile photo urls for the same key.
   var finishedKeys = {};
+  var finishedPhotos = {};
   (DATA.finished || []).forEach(function (f) {
-    finishedKeys[f.base + '|' + (f.top || '') + '|' + (f.clay || '')] = true;
+    var key = f.base + '|' + (f.top || '') + '|' + (f.clay || '');
+    finishedKeys[key] = true;
+    if (f.photos && f.photos.length) {
+      finishedPhotos[key] = (finishedPhotos[key] || []).concat(f.photos);
+    }
   });
   function isFinished(baseCode, topCode, clayName) {
     return has(finishedKeys, baseCode + '|' + (topCode || '') + '|' + clayName);
+  }
+  function photosFor(baseCode, topCode, clayName) {
+    return finishedPhotos[baseCode + '|' + (topCode || '') + '|' + clayName] || [];
   }
 
   // Precompute every cell. bands is indexed parallel to clays; the run/deco
@@ -509,6 +518,28 @@
     if (tags.length) html += '<div class="gm-pills">' + tags.join(' ') + '</div>';
     html += '<p class="gm-rec">' + escapeHtml(rec.line) + '</p>';
     html += '<p class="gm-coats">' + escapeHtml(rec.coats) + '</p>';
+
+    // Photos of any finished tiles for the selected clays in this cell.
+    var photoHtml = '';
+    idxs.forEach(function (k) {
+      var band = cell.bands[k];
+      if (!band.finished) return;
+      var clay = clays[k];
+      var urls = cell.single
+        ? photosFor(b.code, null, clay.name)
+        : photosFor(b.code, t.code, clay.name);
+      urls.forEach(function (url) {
+        var label = escapeHtml(shortClayName(clay.name));
+        photoHtml += '<figure class="gm-photo">' +
+          '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' +
+          '<img loading="lazy" src="' + escapeHtml(url) + '" alt="Finished tile on ' + label + '"></a>' +
+          '<figcaption>' + label + '</figcaption></figure>';
+      });
+    });
+    if (photoHtml) {
+      html += '<div class="gm-photos"><div class="gm-photos-h">Finished tiles</div>' + photoHtml + '</div>';
+    }
+
     html += '<ul class="gm-claylist">';
     idxs.forEach(function (k) {
       var clay = clays[k];

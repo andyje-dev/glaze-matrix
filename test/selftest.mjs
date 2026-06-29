@@ -26,7 +26,7 @@ for (const f of ['api/index.js', 'public/app.js']) {
 
 // --- 2. Server-side shaping --------------------------------------------------
 const api = require(join(root, 'api/index.js'));
-const { shapeGlazes, shapeClays, shapeFinished, extractCode } = api._internals;
+const { shapeGlazes, shapeClays, shapeFinished, extractCode, pagePhotos } = api._internals;
 
 function titleProp(text) { return { type: 'title', title: [{ plain_text: text }] }; }
 function sel(name) { return { type: 'select', select: name == null ? null : { name } }; }
@@ -34,6 +34,9 @@ function multi(names) { return { type: 'multi_select', multi_select: names.map((
 function check(v) { return { type: 'checkbox', checkbox: v }; }
 function rel(ids) { return { type: 'relation', relation: ids.map((id) => ({ id })) }; }
 function text(s) { return { type: 'rich_text', rich_text: [{ plain_text: s }] }; }
+function files(entries) { return { type: 'files', files: entries }; }
+function ifile(url) { return { type: 'file', file: { url } }; }
+function efile(url) { return { type: 'external', external: { url } }; }
 
 const glazePages = [
   {
@@ -105,7 +108,12 @@ const tilePages = [
       'Top Glaze': rel([]),
       Clay: rel(['wh8id']),
       Layers: text('Base (PC-10 June Bug): 3'),
-      Name: text('PC-10 June Bug')
+      Name: text('PC-10 June Bug'),
+      Photo: files([
+        ifile('https://files.example.com/tile-a.jpg?sig=1'),
+        efile('https://example.com/tile-b.png'),
+        ifile('https://files.example.com/notes.pdf?sig=2')
+      ])
     }
   },
   {
@@ -131,6 +139,16 @@ assert.ok(single && single.base === 'PC-10' && single.clay === 'New Mexico Clay 
 const combo = finished.find((f) => f.top === 'PC-12');
 assert.ok(combo && combo.base === 'PC-10', 'combo resolved via Layers text');
 ok('shapeFinished: status filter, relation/Layers resolution, single vs combo');
+
+// Photo auto-detection keeps image urls and drops non-images.
+assert.deepEqual(single.photos, ['https://files.example.com/tile-a.jpg?sig=1', 'https://example.com/tile-b.png'], 'image photos kept, pdf dropped');
+assert.deepEqual(combo.photos, [], 'tile with no Files property has no photos');
+assert.deepEqual(
+  pagePhotos({ properties: { Shots: files([ifile('a.JPG'), ifile('b.txt'), efile('https://x/c.webp')]) } }),
+  ['a.JPG', 'https://x/c.webp'],
+  'pagePhotos: case-insensitive image filter across Files properties'
+);
+ok('pagePhotos: image filtering');
 
 // --- 3. Client scoring -------------------------------------------------------
 function stubEl() {
@@ -295,5 +313,32 @@ assert.ok(!comboCell.classList.contains('gm-pinned'), 'second click unpins');
 dispatch(grid, 'mouseover', { target: singleCell });
 assert.ok(detail.innerHTML.indexOf('→') < 0, 'hover updates again after unpin');
 ok('click-to-pin: pin holds the panel, second click and hover restore behaviour');
+
+// --- 6. Finished-tile photos in the detail panel -----------------------------
+const stub3 = richStub();
+const photoData = {
+  glazes: fixtureData.glazes,
+  clays: fixtureData.clays,
+  finished: [{ base: 'C-21', top: null, clay: 'New Mexico Clay - WH8 Stoneware', photos: ['https://files.example.com/tile-a.jpg?sig=1'] }],
+  generatedAt: null
+};
+const sb4 = { window: { __GMDATA__: photoData }, document: stub3.document, console };
+vm.createContext(sb4);
+vm.runInContext(readFileSync(join(root, 'public/app.js'), 'utf8'), sb4);
+
+const grid3 = stub3.created.find((e) => e.className === 'gm-grid');
+const detail3 = stub3.created.find((e) => e.className === 'gm-detail');
+const cells3 = stub3.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-cell') === 0);
+const finishedSingle = cells3[0]; // (0,0): C-21 single on WH8, finished with a photo
+const plainCombo = cells3[1];     // (0,1): not finished
+
+dispatch(grid3, 'mouseover', { target: finishedSingle });
+assert.ok(detail3.innerHTML.indexOf('<img') >= 0, 'finished cell shows a tile photo');
+assert.ok(detail3.innerHTML.indexOf('tile-a.jpg') >= 0, 'photo points at the tile url');
+assert.ok(detail3.innerHTML.indexOf('Finished tiles') >= 0, 'photo section is labelled');
+
+dispatch(grid3, 'mouseover', { target: plainCombo });
+assert.ok(detail3.innerHTML.indexOf('<img') < 0, 'cell with no finished tile shows no photo');
+ok('detail photos: shown only for finished cells');
 
 console.log('\nAll ' + passed + ' checks passed.');
