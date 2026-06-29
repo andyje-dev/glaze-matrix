@@ -26,7 +26,7 @@ for (const f of ['api/index.js', 'public/app.js']) {
 
 // --- 2. Server-side shaping --------------------------------------------------
 const api = require(join(root, 'api/index.js'));
-const { shapeGlazes, shapeClays, shapeFinished, extractCode, pagePhotos } = api._internals;
+const { shapeGlazes, shapeClays, shapeFinished, shapeComboIndex, shapePieces, extractCode, pagePhotos } = api._internals;
 
 function titleProp(text) { return { type: 'title', title: [{ plain_text: text }] }; }
 function sel(name) { return { type: 'select', select: name == null ? null : { name } }; }
@@ -149,6 +149,32 @@ assert.deepEqual(
   'pagePhotos: case-insensitive image filter across Files properties'
 );
 ok('pagePhotos: image filtering');
+
+// Throws → finished pieces. The combo index covers every combo row (any status),
+// so a throw can resolve to a cell even when no tile was ever finished.
+const comboById = shapeComboIndex(tilePages, glazeById);
+assert.deepEqual(comboById['t2'], { base: 'PC-10', top: 'PC-12' }, 'combo index resolves a layered row');
+assert.deepEqual(comboById['t3'], { base: 'PC-10', top: null }, 'combo index covers a To-Do (untiled) row');
+
+const throwPages = [
+  {
+    id: 'th1', // Finished, resolves to the PC-10 → PC-12 combo on Chocolate
+    properties: {
+      Status: sel('Finished'),
+      'Glaze Combos': rel(['t2']),
+      Clay: rel(['choid']),
+      Photos: files([ifile('https://f/early.jpg'), ifile('https://f/final.jpg?sig=9'), ifile('https://f/notes.pdf')])
+    }
+  },
+  { id: 'th2', properties: { Status: sel('Wet'), 'Glaze Combos': rel(['t2']), Clay: rel(['choid']), Photos: files([ifile('https://f/x.jpg')]) } },
+  { id: 'th3', properties: { Status: sel('Fired'), 'Glaze Combos': rel(['t2']), Clay: rel(['choid']), Photos: files([ifile('https://f/notes.pdf')]) } },
+  { id: 'th4', properties: { Status: sel('Finished'), 'Glaze Combos': rel(['nope']), Clay: rel(['choid']), Photos: files([ifile('https://f/y.jpg')]) } },
+  { id: 'th5', properties: { Status: sel('Fired'), 'Glaze Combos': rel(['t2']), Clay: rel([]), Photos: files([ifile('https://f/z.jpg')]) } }
+];
+const pieces = shapePieces(throwPages, comboById, clayById);
+assert.equal(pieces.length, 1, 'only a Finished/Fired throw with a known combo, a clay, and an image counts');
+assert.deepEqual(pieces[0], { base: 'PC-10', top: 'PC-12', clay: 'New Mexico Clay - Chocolate', photo: 'https://f/final.jpg?sig=9' }, 'latest image wins, pdf ignored');
+ok('shapePieces: status/combo/clay/photo gating, latest-image pick');
 
 // --- 3. Client scoring -------------------------------------------------------
 function stubEl() {
@@ -340,5 +366,49 @@ assert.ok(detail3.innerHTML.indexOf('Finished tiles') >= 0, 'photo section is la
 dispatch(grid3, 'mouseover', { target: plainCombo });
 assert.ok(detail3.innerHTML.indexOf('<img') < 0, 'cell with no finished tile shows no photo');
 ok('detail photos: shown only for finished cells');
+
+// --- 7. Finished-piece (thrown) photos and the grey band ---------------------
+const stub4 = richStub();
+const pieceData = {
+  glazes: fixtureData.glazes,
+  clays: fixtureData.clays,
+  finished: [],
+  // C-21 → CR-12 on WH8 has a thrown piece but no finished tile.
+  pieces: [{ base: 'C-21', top: 'CR-12', clay: 'New Mexico Clay - WH8 Stoneware', photo: 'https://f/piece-x.jpg' }],
+  generatedAt: null
+};
+const sb5 = { window: { __GMDATA__: pieceData }, document: stub4.document, console };
+vm.createContext(sb5);
+vm.runInContext(readFileSync(join(root, 'public/app.js'), 'utf8'), sb5);
+
+const grid4 = stub4.created.find((e) => e.className === 'gm-grid');
+const detail4 = stub4.created.find((e) => e.className === 'gm-detail');
+const cells4 = stub4.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-cell') === 0);
+const pieceCombo = cells4[1]; // (0,1): C-21 over CR-12; WH8 band is the piece
+const wh8Band = pieceCombo._children.filter((c) => c.className === 'gm-band')[0];
+assert.equal(wh8Band.style.background, '#5b554c', 'piece band uses the grey, not the rating colour');
+
+dispatch(grid4, 'mouseover', { target: pieceCombo });
+assert.ok(detail4.innerHTML.indexOf('Finished pieces') >= 0, 'detail panel has a Finished pieces section');
+assert.ok(detail4.innerHTML.indexOf('piece-x.jpg') >= 0, 'piece photo is shown');
+assert.ok(detail4.innerHTML.indexOf('(finished piece)') >= 0, 'clay row notes the finished piece');
+ok('finished pieces: grey band, piece gallery, clay-row label');
+
+// A finished tile for the same combo+clay outranks the piece (black, no grey).
+const stub5 = richStub();
+const bothData = {
+  glazes: fixtureData.glazes,
+  clays: fixtureData.clays,
+  finished: [{ base: 'C-21', top: 'CR-12', clay: 'New Mexico Clay - WH8 Stoneware', photos: ['https://f/tile.jpg'] }],
+  pieces: [{ base: 'C-21', top: 'CR-12', clay: 'New Mexico Clay - WH8 Stoneware', photo: 'https://f/piece-x.jpg' }],
+  generatedAt: null
+};
+const sb6 = { window: { __GMDATA__: bothData }, document: stub5.document, console };
+vm.createContext(sb6);
+vm.runInContext(readFileSync(join(root, 'public/app.js'), 'utf8'), sb6);
+const cells5 = stub5.created.filter((e) => typeof e.className === 'string' && e.className.indexOf('gm-cell') === 0);
+const bothBand = cells5[1]._children.filter((c) => c.className === 'gm-band')[0];
+assert.equal(bothBand.style.background, '#17130d', 'a finished tile outranks a piece (stays black)');
+ok('precedence: finished tile beats finished piece');
 
 console.log('\nAll ' + passed + ' checks passed.');

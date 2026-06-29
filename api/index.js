@@ -1,13 +1,18 @@
 // Vercel serverless function.
-// Fetches the three Notion databases server-side, shapes them into a compact
-// object, and returns an HTML page with that object injected as
-// window.__GMDATA__. The Notion token never reaches the client.
+// Fetches the Notion databases (glazes, clays, glaze combos, throws) server-side,
+// shapes them into a compact object, and returns an HTML page with that object
+// injected as window.__GMDATA__. The Notion token never reaches the client.
 
 const NOTION_VERSION = '2022-06-28';
 
 const GLAZES_DB_ID = process.env.GLAZES_DB_ID || '34b7d0e43ed2804c8552debe7c49b859';
 const CLAYS_DB_ID = process.env.CLAYS_DB_ID || '34b7d0e43ed2805fa511fff16d5b0af0';
+// TILES_DB_ID points at the "Glaze Combos" database. Rows there are combos; a
+// row with Status=Finished is a finished test tile.
 const TILES_DB_ID = process.env.TILES_DB_ID || 'e13b547dd5ab4319a6f528c837401d29';
+// Thrown pieces. A throw can name the combo it used (Glaze Combos relation) and
+// carry finished-piece photos, so combos with a piece but no tile still appear.
+const THROWS_DB_ID = process.env.THROWS_DB_ID || '34b7d0e43ed280048dd0e89baff8626d';
 
 // --- Notion property parsing -------------------------------------------------
 
@@ -62,6 +67,18 @@ function pagePhotos(page) {
   } else {
     for (var k in props) collect(props[k], false);
   }
+  return urls;
+}
+
+// Image urls from one named Files property, in upload order.
+function propImages(page, propName) {
+  var p = prop(page, propName);
+  if (!p || p.type !== 'files' || !Array.isArray(p.files)) return [];
+  var urls = [];
+  p.files.forEach(function (f) {
+    var u = fileUrl(f);
+    if (u && isImageUrl(u)) urls.push(u);
+  });
   return urls;
 }
 
@@ -210,32 +227,84 @@ function richTextOrTitle(page, name) {
   return '';
 }
 
+// Resolve a Glaze Combos row to its {base, top} glaze codes (top null = single).
+function resolveComboGlazes(page, glazeById) {
+  const base = resolveTileGlaze(page, 'Base Glaze', glazeById, 'Base', 0);
+  if (!base) return null;
+
+  // A single-glaze combo has no top. Try Top relation / Layers / second Name part.
+  let top = resolveTileGlaze(page, 'Top Glaze', glazeById, 'Top', 1);
+  // If the Name has no arrow, namePart 1 returns undefined and top stays null.
+  const name = richTextOrTitle(page, 'Name');
+  if (top && name && name.indexOf('→') < 0 && relIds(prop(page, 'Top Glaze')).length === 0) {
+    // Name is single and no Top relation: treat as single even if Layers had a stray match.
+    const layers = richText(prop(page, 'Layers'));
+    if (!/Top\s*\(/.test(layers)) top = null;
+  }
+  return { base: base, top: top || null };
+}
+
+// Map every Glaze Combos row (dashless page id) to its {base, top} codes, so a
+// throw's Glaze Combos relation can be resolved to a matrix cell.
+function shapeComboIndex(pages, glazeById) {
+  const comboById = {};
+  for (const page of pages) {
+    const combo = resolveComboGlazes(page, glazeById);
+    if (combo) comboById[String(page.id).replace(/-/g, '')] = combo;
+  }
+  return comboById;
+}
+
+function clayName(page, clayById) {
+  const clayIds = relIds(prop(page, 'Clay'));
+  for (const id of clayIds) { if (clayById[id]) return clayById[id]; }
+  return null;
+}
+
 function shapeFinished(pages, glazeById, clayById) {
   const finished = [];
   for (const page of pages) {
     const status = selName(prop(page, 'Status'));
     if (status !== 'Finished') continue;
 
-    const base = resolveTileGlaze(page, 'Base Glaze', glazeById, 'Base', 0);
-    if (!base) continue;
+    const combo = resolveComboGlazes(page, glazeById);
+    if (!combo) continue;
 
-    // A single-glaze tile has no top. Try Top relation / Layers / second Name part.
-    let top = resolveTileGlaze(page, 'Top Glaze', glazeById, 'Top', 1);
-    // If the Name has no arrow, namePart 1 returns undefined and top stays null.
-    const name = richTextOrTitle(page, 'Name');
-    if (top && name && name.indexOf('→') < 0 && relIds(prop(page, 'Top Glaze')).length === 0) {
-      // Name is single and no Top relation: treat as single even if Layers had a stray match.
-      const layers = richText(prop(page, 'Layers'));
-      if (!/Top\s*\(/.test(layers)) top = null;
-    }
-
-    const clayIds = relIds(prop(page, 'Clay'));
-    let clay = null;
-    for (const id of clayIds) { if (clayById[id]) { clay = clayById[id]; break; } }
-
-    finished.push({ base: base, top: top || null, clay: clay, photos: pagePhotos(page) });
+    finished.push({
+      base: combo.base,
+      top: combo.top,
+      clay: clayName(page, clayById),
+      photos: pagePhotos(page)
+    });
   }
   return finished;
+}
+
+// A thrown piece counts when it is at least fired (so it has been glazed),
+// names the combo it used, and has a photo of the result. The latest image in
+// the throw's Photos is the finished, glazed piece.
+const PIECE_PROP = process.env.THROWS_PHOTO_PROP || 'Photos';
+const PIECE_STATUSES = { Finished: true, Fired: true };
+
+function shapePieces(pages, comboById, clayById) {
+  const pieces = [];
+  for (const page of pages) {
+    if (!PIECE_STATUSES[selName(prop(page, 'Status'))]) continue;
+
+    const comboIds = relIds(prop(page, 'Glaze Combos'));
+    let combo = null;
+    for (const id of comboIds) { if (comboById[id]) { combo = comboById[id]; break; } }
+    if (!combo) continue;
+
+    const clay = clayName(page, clayById);
+    if (!clay) continue;
+
+    const images = propImages(page, PIECE_PROP);
+    if (!images.length) continue;
+
+    pieces.push({ base: combo.base, top: combo.top, clay: clay, photo: images[images.length - 1] });
+  }
+  return pieces;
 }
 
 // --- HTML --------------------------------------------------------------------
@@ -269,7 +338,7 @@ function errorPage(message) {
     '<body><div class="errorbox"><h1>The matrix could not load</h1>' +
     '<p>' + String(message).replace(/</g, '&lt;') + '</p>' +
     '<p>Check that NOTION_TOKEN is set on the server and that the integration has ' +
-    'been added to the Glazes, Clays, and Test Tiles databases under Connections.</p>' +
+    'been added to the Glazes, Clays, Glaze Combos, and Throws databases under Connections.</p>' +
     '</div></body></html>';
 }
 
@@ -287,20 +356,24 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const [glazePages, clayPages, tilePages] = await Promise.all([
+    const [glazePages, clayPages, tilePages, throwPages] = await Promise.all([
       queryDatabase(token, GLAZES_DB_ID),
       queryDatabase(token, CLAYS_DB_ID),
-      queryDatabase(token, TILES_DB_ID)
+      queryDatabase(token, TILES_DB_ID),
+      queryDatabase(token, THROWS_DB_ID)
     ]);
 
     const g = shapeGlazes(glazePages);
     const c = shapeClays(clayPages);
     const finished = shapeFinished(tilePages, g.glazeById, c.clayById);
+    const comboById = shapeComboIndex(tilePages, g.glazeById);
+    const pieces = shapePieces(throwPages, comboById, c.clayById);
 
     const data = {
       glazes: g.glazes,
       clays: c.clays,
       finished: finished,
+      pieces: pieces,
       generatedAt: new Date().toISOString()
     };
 
@@ -317,6 +390,8 @@ module.exports._internals = {
   shapeGlazes: shapeGlazes,
   shapeClays: shapeClays,
   shapeFinished: shapeFinished,
+  shapeComboIndex: shapeComboIndex,
+  shapePieces: shapePieces,
   extractCode: extractCode,
   pagePhotos: pagePhotos
 };

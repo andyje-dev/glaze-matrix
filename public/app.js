@@ -166,6 +166,22 @@
     return finishedPhotos[baseCode + '|' + (topCode || '') + '|' + clayName] || [];
   }
 
+  // Piece index: thrown pieces whose combo has no finished test tile. Same
+  // "base|top|clay" key; each finished piece contributes one photo.
+  var pieceKeys = {};
+  var piecePhotos = {};
+  (DATA.pieces || []).forEach(function (p) {
+    var key = p.base + '|' + (p.top || '') + '|' + (p.clay || '');
+    pieceKeys[key] = true;
+    if (p.photo) piecePhotos[key] = (piecePhotos[key] || []).concat([p.photo]);
+  });
+  function isPiece(baseCode, topCode, clayName) {
+    return has(pieceKeys, baseCode + '|' + (topCode || '') + '|' + clayName);
+  }
+  function piecePhotosFor(baseCode, topCode, clayName) {
+    return piecePhotos[baseCode + '|' + (topCode || '') + '|' + clayName] || [];
+  }
+
   // Precompute every cell. bands is indexed parallel to clays; the run/deco
   // tags are computed here as raw pair properties and suppressed at render time
   // based on which clays are currently selected.
@@ -177,10 +193,11 @@
       var single = i === j;
       var bands = clays.map(function (clay) {
         var rating = single ? bandSingle(b, clay) : bandCombo(b, t, clay);
-        var fin = single
-          ? isFinished(b.code, null, clay.name)
-          : isFinished(b.code, t.code, clay.name);
-        return { rating: rating, finished: fin };
+        var topCode = single ? null : t.code;
+        var fin = isFinished(b.code, topCode, clay.name);
+        // A finished tile outranks a piece, so only flag piece when no tile.
+        var pc = !fin && isPiece(b.code, topCode, clay.name);
+        return { rating: rating, finished: fin, piece: pc };
       });
       row.push({
         single: single, b: b, t: t, bands: bands,
@@ -282,7 +299,15 @@
 
   // --- Rendering ------------------------------------------------------------
   var COLORS = ['#C0DD97', '#B5D4F4', '#EAE7DF']; // REC, WORTH, SKIP
-  var BLACK = '#17130d';
+  var BLACK = '#17130d';                          // finished test tile
+  var PIECE = '#5b554c';                           // finished piece, no tile yet
+
+  // Band fill: a finished tile wins, then a finished piece, then the rating.
+  function bandColor(band) {
+    if (band.finished) return BLACK;
+    if (band.piece) return PIECE;
+    return COLORS[band.rating];
+  }
 
   function el(tag, cls, html) {
     var e = document.createElement(tag);
@@ -311,6 +336,7 @@
   legend.appendChild(swatch(COLORS[WORTH], 'Worth a test'));
   legend.appendChild(swatch(COLORS[SKIP], 'Skip'));
   legend.appendChild(swatch(BLACK, 'Finished tile'));
+  legend.appendChild(swatch(PIECE, 'Finished piece (no tile)'));
   legend.appendChild(tagKey('gm-run', 'Run risk'));
   legend.appendChild(tagKey('gm-deco', 'Decorative only'));
   app.appendChild(legend);
@@ -401,7 +427,7 @@
           var counts = band.rating === REC || (includeWorth && band.rating === WORTH);
           if (counts) {
             target++;
-            if (band.finished) done++;
+            if (band.finished || band.piece) done++;
           }
         }
       }
@@ -456,7 +482,7 @@
       var band = cell.bands[k];
       if (band.rating !== SKIP) allSkip = false;
       var bd = el('div', 'gm-band');
-      bd.style.background = band.finished ? BLACK : COLORS[band.rating];
+      bd.style.background = bandColor(band);
       d.appendChild(bd);
     });
     if (!allSkip && cell.runRaw) d.appendChild(el('span', 'gm-tag gm-run'));
@@ -540,14 +566,33 @@
       html += '<div class="gm-photos"><div class="gm-photos-h">Finished tiles</div>' + photoHtml + '</div>';
     }
 
+    // Photos of any finished pieces (thrown work) for the selected clays.
+    var pieceHtml = '';
+    idxs.forEach(function (k) {
+      var band = cell.bands[k];
+      if (!band.piece) return;
+      var clay = clays[k];
+      var urls = piecePhotosFor(b.code, cell.single ? null : t.code, clay.name);
+      urls.forEach(function (url) {
+        var label = escapeHtml(shortClayName(clay.name));
+        pieceHtml += '<figure class="gm-photo">' +
+          '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' +
+          '<img loading="lazy" src="' + escapeHtml(url) + '" alt="Finished piece on ' + label + '"></a>' +
+          '<figcaption>' + label + '</figcaption></figure>';
+      });
+    });
+    if (pieceHtml) {
+      html += '<div class="gm-photos"><div class="gm-photos-h">Finished pieces</div>' + pieceHtml + '</div>';
+    }
+
     html += '<ul class="gm-claylist">';
     idxs.forEach(function (k) {
       var clay = clays[k];
       var band = cell.bands[k];
       var note = clayNote(b, t, clay, band.rating, cell.single);
-      var fin = band.finished ? ' (finished)' : '';
+      var fin = band.finished ? ' (finished tile)' : (band.piece ? ' (finished piece)' : '');
       html += '<li><span class="gm-claydot" style="background:' +
-        (band.finished ? BLACK : COLORS[band.rating]) + '"></span>' +
+        bandColor(band) + '"></span>' +
         '<b>' + escapeHtml(shortClayName(clay.name)) + '</b>: ' + RATING_LABEL[band.rating] + fin +
         '. ' + escapeHtml(note) + '</li>';
     });
