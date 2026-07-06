@@ -166,8 +166,9 @@
     return finishedPhotos[baseCode + '|' + (topCode || '') + '|' + clayName] || [];
   }
 
-  // Piece index: thrown pieces whose combo has no finished test tile. Same
-  // "base|top|clay" key; each finished piece contributes one photo.
+  // Piece index: finished/fired thrown pieces, keyed by "base|top|clay". Each
+  // piece contributes one photo. A piece can coexist with a finished test tile
+  // for the same combo; the pop-up shows both sets of photos.
   var pieceKeys = {};
   var piecePhotos = {};
   (DATA.pieces || []).forEach(function (p) {
@@ -619,11 +620,11 @@
       html += '<div class="gm-photos"><div class="gm-photos-h">Finished tiles</div>' + photoHtml + '</div>';
     }
 
-    // Photos of any finished pieces (thrown work) for the selected clays.
+    // Photos of any finished/fired pieces (thrown work) for the selected clays.
+    // Independent of band.piece: a finished tile outranks a piece for the grid
+    // swatch, but the pop-up still shows every piece photo for the combo.
     var pieceHtml = '';
     idxs.forEach(function (k) {
-      var band = cell.bands[k];
-      if (!band.piece) return;
       var clay = clays[k];
       var urls = piecePhotosFor(b.code, cell.single ? null : t.code, clay.name);
       urls.forEach(function (url) {
